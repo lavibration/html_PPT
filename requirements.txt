@@ -3,3 +3,10 @@ playwright
 python-pptx
 requests
 asyncio
+libnss3
+libatk1.0-0
+libatk-bridge2.0-0
+libdrm2
+libxkbcommon0
+libgbm1
+libasound2
