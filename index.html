@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Convertisseur HTML vers PPTX</title>
+    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
+    <script src="https://cdn.jsdelivr.net/gh/gitbrent/pptxgenjs/dist/pptxgen.bundle.js"></script>
+</head>
+<body class="bg-gray-100 min-h-screen p-8">
+    <div class="max-w-4xl mx-auto bg-white p-6 rounded-lg shadow-md">
+        <h1 class="text-2xl font-bold mb-4 text-gray-800 text-center">Convertisseur HTML vers PowerPoint</h1>
+
+        <div class="mb-4">
+            <label for="htmlInput" class="block text-sm font-medium text-gray-700 mb-2">Collez votre code HTML ici :</label>
+            <textarea id="htmlInput" class="w-full h-64 p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 font-mono text-sm" placeholder="<section class='slide'><h1>Mon Titre</h1><p>Mon texte</p></section>"></textarea>
+        </div>
+
+        <div class="flex justify-center mb-6">
+            <button id="generateBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-lg transition duration-200">
+                Générer le PPTX
+            </button>
+        </div>
+
+        <div class="mt-8 border-t pt-6">
+            <h2 class="text-lg font-semibold mb-3 text-gray-700">Prévisualisation (Simple)</h2>
+            <div id="previewArea" class="border border-dashed border-gray-400 p-4 min-h-[100px] bg-gray-50 rounded-md prose max-w-none">
+                <p class="text-gray-500 italic">La prévisualisation apparaîtra ici...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const generateBtn = document.getElementById('generateBtn');
+        const htmlInput = document.getElementById('htmlInput');
+        const previewArea = document.getElementById('previewArea');
+
+        // Update preview as user types
+        htmlInput.addEventListener('input', () => {
+            previewArea.innerHTML = htmlInput.value;
+        });
+
+        generateBtn.addEventListener('click', () => {
+            const htmlCode = htmlInput.value.trim();
+            if (!htmlCode) {
+                alert('Veuillez coller du code HTML d\'abord.');
+                return;
+            }
+
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(htmlCode, 'text/html');
+
+            // Find slides: <section> or <div> with class "slide"
+            let slidesElements = Array.from(doc.querySelectorAll('section, div.slide'));
+
+            // If no slide-specific elements found, try to use the whole body if it contains anything
+            if (slidesElements.length === 0 && doc.body.innerHTML.trim() !== '') {
+                slidesElements = [doc.body];
+            }
+
+            if (slidesElements.length === 0) {
+                alert('Aucune structure de diapositive trouvée. Utilisez <section> ou <div class="slide">.');
+                return;
+            }
+
+            const pptx = new PptxGenJS();
+            pptx.layout = 'LAYOUT_16x9';
+
+            slidesElements.forEach(slideEl => {
+                const slide = pptx.addSlide();
+
+                // Default settings
+                const defaultFont = 'Calibri';
+                const textColor = '000000';
+                const bgColor = 'FFFFFF';
+
+                // Handle <h1> as Titles
+                const titles = slideEl.querySelectorAll('h1');
+                let yOffset = 0.5;
+
+                titles.forEach(h1 => {
+                    slide.addText(h1.innerText, {
+                        x: 0.5,
+                        y: yOffset,
+                        w: '90%',
+                        h: 1,
+                        fontSize: 36,
+                        fontFace: defaultFont,
+                        color: textColor,
+                        bold: true,
+                        align: 'center'
+                    });
+                    yOffset += 1.2;
+                });
+
+                // Handle <p> and <li> as text content
+                const contentElements = slideEl.querySelectorAll('p, li');
+                contentElements.forEach(el => {
+                    const isListItem = el.tagName.toLowerCase() === 'li';
+                    slide.addText(el.innerText, {
+                        x: 0.75,
+                        y: yOffset,
+                        w: '85%',
+                        h: 0.5,
+                        fontSize: 18,
+                        fontFace: defaultFont,
+                        color: textColor,
+                        bullet: isListItem ? true : false,
+                        valign: 'top'
+                    });
+                    yOffset += 0.6;
+                });
+
+                // Handle <img>
+                const images = slideEl.querySelectorAll('img');
+                images.forEach(img => {
+                    const src = img.getAttribute('src');
+                    if (src) {
+                        slide.addImage({
+                            path: src,
+                            x: 1,
+                            y: yOffset,
+                            w: 3,
+                            h: 2
+                        });
+                        yOffset += 2.2;
+                    }
+                });
+            });
+
+            pptx.writeFile({ fileName: 'presentation_generee.pptx' })
+                .then(fileName => console.log(`Created file: ${fileName}`))
+                .catch(err => {
+                    console.error(err);
+                    alert('Erreur lors de la génération du PPTX.');
+                });
+        });
+    </script>
+</body>
+</html>
