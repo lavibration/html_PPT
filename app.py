@@ -87,10 +87,25 @@ with col1:
 with col2:
     st.subheader("👁️ Prévisualisation")
     if html_content:
-        # Wrap in a div to simulate slide boundaries
+        # Inject Tailwind and fonts for the preview to match the generator's behavior
         preview_html = f"""
-        <div style="width: 100%; height: 400px; border: 2px dashed #cbd5e1; border-radius: 1rem; overflow: auto; background: white; padding: 1rem;">
-            {html_content}
+        <div style="width: 100%; height: 600px; border: 2px dashed #cbd5e1; border-radius: 1rem; overflow: auto; background: white;">
+            <iframe srcdoc="
+                <html>
+                    <head>
+                        <script src='https://cdn.tailwindcss.com'></script>
+                        <style>
+                            body {{ margin: 0; padding: 1rem; font-family: Calibri, sans-serif; background: #eee; min-height: 100vh; display: flex; align-items: center; justify-content: center; }}
+                            .preview-slide {{ width: 1280px; height: 720px; background: white; position: relative; overflow: hidden; transform: scale(0.5); transform-origin: center center; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }}
+                            @media (max-width: 1400px) {{ .preview-slide {{ transform: scale(0.4); }} }}
+                            @media (max-width: 1000px) {{ .preview-slide {{ transform: scale(0.3); }} }}
+                        </style>
+                    </head>
+                    <body>
+                        <div class='preview-slide'>{html_content.replace('"', '&quot;')}</div>
+                    </body>
+                </html>
+            " style="width: 100%; height: 100%; border: none;"></iframe>
         </div>
         """
         st.markdown(preview_html, unsafe_allow_html=True)
