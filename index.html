@@ -69,63 +69,90 @@
             slidesElements.forEach(slideEl => {
                 const slide = pptx.addSlide();
 
-                // Default settings
                 const defaultFont = 'Calibri';
-                const textColor = '000000';
-                const bgColor = 'FFFFFF';
-
-                // Handle <h1> as Titles
-                const titles = slideEl.querySelectorAll('h1');
                 let yOffset = 0.5;
 
-                titles.forEach(h1 => {
-                    slide.addText(h1.innerText, {
-                        x: 0.5,
-                        y: yOffset,
-                        w: '90%',
-                        h: 1,
-                        fontSize: 36,
-                        fontFace: defaultFont,
-                        color: textColor,
-                        bold: true,
-                        align: 'center'
-                    });
-                    yOffset += 1.2;
-                });
-
-                // Handle <p> and <li> as text content
-                const contentElements = slideEl.querySelectorAll('p, li');
-                contentElements.forEach(el => {
-                    const isListItem = el.tagName.toLowerCase() === 'li';
-                    slide.addText(el.innerText, {
-                        x: 0.75,
-                        y: yOffset,
-                        w: '85%',
-                        h: 0.5,
-                        fontSize: 18,
-                        fontFace: defaultFont,
-                        color: textColor,
-                        bullet: isListItem ? true : false,
-                        valign: 'top'
-                    });
-                    yOffset += 0.6;
-                });
-
-                // Handle <img>
-                const images = slideEl.querySelectorAll('img');
-                images.forEach(img => {
-                    const src = img.getAttribute('src');
-                    if (src) {
-                        slide.addImage({
-                            path: src,
-                            x: 1,
-                            y: yOffset,
-                            w: 3,
-                            h: 2
-                        });
-                        yOffset += 2.2;
+                function getHexColor(colorStr) {
+                    if (!colorStr) return '000000';
+                    if (colorStr.startsWith('#')) return colorStr.substring(1);
+                    if (colorStr.startsWith('rgb')) {
+                        const parts = colorStr.match(/\d+/g);
+                        if (parts && parts.length >= 3) {
+                            return parts.slice(0, 3).map(x => parseInt(x).toString(16).padStart(2, '0')).join('');
+                        }
                     }
-                });
+                    return '000000';
+                }
+
+                function processNode(node) {
+                    if (node.nodeType === Node.ELEMENT_NODE) {
+                        const tag = node.tagName.toLowerCase();
+
+                        // Ignore some tags
+                        if (tag === 'script' || tag === 'style') return;
+
+                        let options = {
+                            x: 0.5, y: yOffset, w: '90%', h: 0.3,
+                            fontSize: 14, fontFace: defaultFont,
+                            color: getHexColor(node.style.color),
+                            valign: 'top'
+                        };
+
+                        if (node.style.fontWeight === 'bold' || tag === 'b' || tag === 'strong') options.bold = true;
+                        if (node.style.fontStyle === 'italic' || tag === 'i' || tag === 'em') options.italic = true;
+                        if (node.style.textAlign === 'center') options.align = 'center';
+                        if (node.style.textAlign === 'right') options.align = 'right';
+
+                        if (/^h[1-6]$/.test(tag)) {
+                            const level = parseInt(tag[1]);
+                            options.fontSize = 42 - (level * 5);
+                            options.bold = true;
+                            options.align = options.align || 'center';
+                            options.h = 0.6;
+                            const text = node.innerText.trim();
+                            if (text) {
+                                slide.addText(text, options);
+                                yOffset += (options.fontSize / 72) + 0.3;
+                            }
+                        } else if (tag === 'p' || tag === 'li' || tag === 'span' || tag === 'div') {
+                            // For containers, check if they contain ONLY text or inline elements
+                            const hasBlockChildren = Array.from(node.children).some(child =>
+                                ['p', 'div', 'section', 'article', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li'].includes(child.tagName.toLowerCase())
+                            );
+
+                            const text = node.innerText.trim();
+                            if (text && (!hasBlockChildren || tag === 'p' || tag === 'li')) {
+                                options.bullet = tag === 'li' ? { indent: 20 } : false;
+                                options.x = tag === 'li' ? 0.75 : 0.5;
+                                options.w = tag === 'li' ? '85%' : '90%';
+                                slide.addText(text, options);
+                                yOffset += (options.fontSize / 72) + 0.15;
+                                // If we processed it as a block, don't recurse into children to avoid duplication
+                                return;
+                            }
+                        } else if (tag === 'img') {
+                            const src = node.getAttribute('src');
+                            if (src) {
+                                slide.addImage({ path: src, x: 1, y: yOffset, w: 3, h: 2 });
+                                yOffset += 2.2;
+                            }
+                        }
+
+                        // Recurse into children
+                        Array.from(node.childNodes).forEach(processNode);
+                    } else if (node.nodeType === Node.TEXT_NODE) {
+                        const text = node.textContent.trim();
+                        if (text && node.parentNode === slideEl) { // Only direct text nodes of slide element
+                            slide.addText(text, {
+                                x: 0.5, y: yOffset, w: '90%', h: 0.3,
+                                fontSize: 14, fontFace: defaultFont, color: '000000'
+                            });
+                            yOffset += 0.4;
+                        }
+                    }
+                }
+
+                Array.from(slideEl.childNodes).forEach(processNode);
             });
 
             pptx.writeFile({ fileName: 'presentation_generee.pptx' })
