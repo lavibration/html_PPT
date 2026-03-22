@@ -57,10 +57,10 @@ with col1:
             # Ensure Playwright browsers are installed (for Streamlit Cloud)
             import subprocess
             try:
-                # First check if already installed to save time
-                check_res = subprocess.run(["playwright", "install", "--help"], capture_output=True)
-                if check_res.returncode == 0:
-                    subprocess.run(["playwright", "install", "chromium"], check=True)
+                # Try to install browser AND dependencies at runtime
+                # Note: install-deps requires sudo which might fail on some cloud hosts,
+                # but 'install chromium' is usually enough if packages.txt is correct.
+                subprocess.run(["playwright", "install", "chromium"], check=True)
             except Exception as e:
                 st.warning(f"Note: Playwright installation may have issues: {e}")
 
