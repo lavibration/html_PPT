@@ -136,7 +136,10 @@
                         const isRounded = borderRadius > 2;
                         const radiusVal = isRounded ? (borderRadius / Math.min(rect.width, rect.height)) : 0;
 
-                        pptSlide.addShape(isRounded ? pptx.ShapeType.ROUND_RECTANGLE : pptx.ShapeType.RECTANGLE, {
+                        // Use string names for shapes if enum is problematic
+                        const shapeType = isRounded ? 'roundRect' : 'rect';
+
+                        pptSlide.addShape(shapeType, {
                             x: `${x}%`, y: `${y}%`, w: `${w}%`, h: `${h}%`,
                             fill: { color: bgColor },
                             rectRadius: Math.min(radiusVal, 0.5)
