@@ -2,10 +2,14 @@ import os
 import sys
 import json
 import asyncio
+import re
+from io import BytesIO
+import requests
 from playwright.async_api import async_playwright
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.enum.text import PP_ALIGN
+from pptx.enum.shapes import MSO_SHAPE
 from pptx.dml.color import RGBColor
 
 # Configuration for 16:9 aspect ratio
@@ -17,12 +21,21 @@ def parse_rgb(rgb_str):
     """Converts 'rgb(r, g, b)' or 'rgba(r, g, b, a)' to RGBColor."""
     if not rgb_str or 'rgba(0, 0, 0, 0)' in rgb_str:
         return None
-    import re
     # Match both rgb and rgba
     match = re.search(r'rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d\.]+)?\)', rgb_str)
     if match:
         return RGBColor(int(match.group(1)), int(match.group(2)), int(match.group(3)))
     return None
+
+def parse_px(px_str):
+    """Safely converts '12px' to float 12.0."""
+    if not px_str: return 0.0
+    try:
+        # Handle complex shorthand like '0px 0px 0px 6px'
+        parts = [float(p.replace('px', '')) for p in px_str.split() if 'px' in p or p == '0']
+        return max(parts) if parts else 0.0
+    except:
+        return 0.0
 
 async def html_to_pptx(html_content, output_file="presentation.pptx"):
     prs = Presentation()
@@ -34,7 +47,6 @@ async def html_to_pptx(html_content, output_file="presentation.pptx"):
         browser = await p.chromium.launch()
         page = await browser.new_page(viewport={'width': 1280, 'height': 720})
 
-        # Inject Tailwind for consistent rendering if needed, or rely on provided styles
         full_html = f"""
         <!DOCTYPE html>
         <html>
@@ -51,32 +63,30 @@ async def html_to_pptx(html_content, output_file="presentation.pptx"):
         </html>
         """
         await page.set_content(full_html)
-        await page.wait_for_timeout(500)  # Wait for styles/fonts
+        await page.wait_for_timeout(1000)  # Wait for Tailwind and fonts
 
-        # Find all slides (sections or elements with .slide class)
-        slides = await page.query_selector_all('section, .slide')
-        if not slides:
-            # Fallback: treat body as a single slide if no explicit markers
-            slides = [await page.query_selector('body')]
+        # Find all slides
+        slides_elements = await page.query_selector_all('section, .slide')
+        if not slides_elements:
+            slides_elements = [await page.query_selector('body')]
 
-        for slide_el in slides:
+        for slide_el in slides_elements:
             blank_slide_layout = prs.slide_layouts[6] # Blank
             slide = prs.slides.add_slide(blank_slide_layout)
-
-            # Get bounding rect of the slide for absolute positioning
             slide_rect = await slide_el.bounding_box()
 
-            # Query all elements inside the slide
+            # Query all elements
             elements = await slide_el.query_selector_all('*')
-
-            # Track processed text nodes to avoid duplicates
             processed_elements = set()
 
             for el in elements:
-                # Get computed styles and bounding box
+                if el in processed_elements: continue
+
+                # Get styles
                 style = await page.evaluate('''(el) => {
                     const s = window.getComputedStyle(el);
                     return {
+                        tagName: el.tagName,
                         fontSize: s.fontSize,
                         fontWeight: s.fontWeight,
                         color: s.color,
@@ -84,105 +94,114 @@ async def html_to_pptx(html_content, output_file="presentation.pptx"):
                         textAlign: s.textAlign,
                         fontFamily: s.fontFamily,
                         display: s.display,
-                        padding: s.padding,
+                        paddingTop: s.paddingTop,
+                        paddingRight: s.paddingRight,
+                        paddingBottom: s.paddingBottom,
+                        paddingLeft: s.paddingLeft,
                         borderWidth: s.borderWidth,
                         borderColor: s.borderColor,
-                        borderRadius: s.borderRadius
+                        borderRadius: s.borderRadius,
+                        visibility: s.visibility,
+                        opacity: s.opacity
                     };
                 }''', el)
 
                 rect = await el.bounding_box()
-                if not rect or rect['width'] == 0 or rect['height'] == 0:
+                if not rect or rect['width'] < 1 or rect['height'] < 1 or style['visibility'] == 'hidden' or float(style['opacity']) == 0:
                     continue
 
-                # Relative coordinates to the slide
-                x = (rect['x'] - slide_rect['x']) * PX_TO_IN
-                y = (rect['y'] - slide_rect['y']) * PX_TO_IN
-                w = rect['width'] * PX_TO_IN
-                h = rect['height'] * PX_TO_IN
+                x, y = (rect['x'] - slide_rect['x']) * PX_TO_IN, (rect['y'] - slide_rect['y']) * PX_TO_IN
+                w, h = rect['width'] * PX_TO_IN, rect['height'] * PX_TO_IN
 
-                # Pass 1: Handle Background/Shapes
-                bg_color = parse_rgb(style['backgroundColor'])
-
-                # Handle multi-value border width (e.g. '0px 0px 0px 6px')
-                border_raw = style['borderWidth'] or '0'
-                # Remove 'px' and split by space
-                border_values = [float(v.replace('px', '')) for v in border_raw.split() if v.strip()]
-                border_width = max(border_values) if border_values else 0
-
-                # Check if this element should be a shape or just a container
-                has_visible_bg = bg_color is not None
-
-                # Pass 2: Handle Images
-                tag_name = await page.evaluate('(el) => el.tagName', el)
-                if tag_name == 'IMG':
+                # 1. Handle Images
+                if style['tagName'] == 'IMG':
                     src = await page.evaluate('(el) => el.src', el)
                     if src.startswith('http'):
-                        import requests
-                        from io import BytesIO
                         try:
                             response = requests.get(src, timeout=5)
                             if response.status_code == 200:
-                                image_stream = BytesIO(response.content)
-                                slide.shapes.add_picture(image_stream, Inches(x), Inches(y), width=Inches(w), height=Inches(h))
-                        except:
-                            pass
+                                slide.shapes.add_picture(BytesIO(response.content), Inches(x), Inches(y), width=Inches(w), height=Inches(h))
+                        except: pass
                     continue
 
-                # Pass 3: Handle Text
-                # We check for direct text content
+                # 2. Extract Text Content
                 text_content = await page.evaluate('''(el) => {
+                    // Check if it's a leaf node with text or has direct text children
                     const childNodes = Array.from(el.childNodes);
-                    const textNode = childNodes.find(n => n.nodeType === 3 && n.textContent.trim().length > 0);
-                    return textNode ? el.innerText : null;
+                    const hasDirectText = childNodes.some(n => n.nodeType === 3 && n.textContent.trim().length > 0);
+                    if (hasDirectText) return el.innerText.trim();
+                    return null;
                 }''', el)
 
-                if text_content and el not in processed_elements:
-                    # Add Text Box
-                    txBox = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h))
-                    tf = txBox.text_frame
-                    tf.word_wrap = True
+                # 3. Background and Border logic
+                bg_color = parse_rgb(style['backgroundColor'])
+                border_color = parse_rgb(style['borderColor'])
+                border_width = parse_px(style['borderWidth'])
+                border_radius = parse_px(style['borderRadius'])
 
-                    p = tf.paragraphs[0]
-                    p.text = text_content.strip()
+                has_visible_bg = bg_color is not None
+                has_visible_border = border_width > 0 and border_color is not None
 
-                    # Apply styles
-                    # Handle possible complex font-size strings (though usually simple px)
-                    fs_raw = style['fontSize'].split()[0].replace('px', '')
-                    font_size = float(fs_raw) * 0.75 # px to pt
-                    p.font.size = Pt(font_size)
-                    p.font.name = 'Calibri'
-                    p.font.bold = int(style['fontWeight']) >= 600 if style['fontWeight'].isdigit() else style['fontWeight'] == 'bold'
+                if text_content or has_visible_bg or has_visible_border:
+                    # Determine Shape Type
+                    shape_type = MSO_SHAPE.RECTANGLE
+                    if border_radius > 0:
+                        shape_type = MSO_SHAPE.ROUNDED_RECTANGLE
 
-                    text_color = parse_rgb(style['color'])
-                    if text_color:
-                        p.font.color.rgb = text_color
+                    shape = slide.shapes.add_shape(shape_type, Inches(x), Inches(y), Inches(w), Inches(h))
 
-                    # Alignment
-                    if style['textAlign'] == 'center':
-                        p.alignment = PP_ALIGN.CENTER
-                    elif style['textAlign'] == 'right':
-                        p.alignment = PP_ALIGN.RIGHT
-                    else:
-                        p.alignment = PP_ALIGN.LEFT
-
-                    # Fill background if needed
+                    # Fill
                     if has_visible_bg:
-                        txBox.fill.solid()
-                        txBox.fill.fore_color.rgb = bg_color
+                        shape.fill.solid()
+                        shape.fill.fore_color.rgb = bg_color
+                    else:
+                        shape.fill.background()
 
-                    # Mark children as processed to avoid duplicates in deep trees
-                    children = await el.query_selector_all('*')
-                    for child in children:
-                        processed_elements.add(child)
+                    # Outline (Border)
+                    if has_visible_border:
+                        shape.line.color.rgb = border_color
+                        shape.line.width = Pt(border_width * 0.75) # px to pt
+                    else:
+                        # CRITICAL: Prevents default blue border
+                        shape.line.fill.background()
 
-                elif has_visible_bg:
-                    # If it's just a colored box without direct text
-                    from pptx.enum.shapes import MSO_SHAPE
-                    shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x), Inches(y), Inches(w), Inches(h))
-                    shape.fill.solid()
-                    shape.fill.fore_color.rgb = bg_color
-                    shape.line.width = Pt(0) # Default no border
+                    # Border Radius adjustment
+                    if border_radius > 0 and shape_type == MSO_SHAPE.ROUNDED_RECTANGLE:
+                        # PPT adjustment is ratio of the smallest dimension (0 to 0.5)
+                        min_dim = min(rect['width'], rect['height'])
+                        adj_val = min(0.5, border_radius / min_dim) if min_dim > 0 else 0
+                        shape.adjustments[0] = adj_val
+
+                    # Text Frame Logic
+                    if text_content:
+                        tf = shape.text_frame
+                        tf.word_wrap = True
+                        # Apply Padding as margins
+                        tf.margin_top = Inches(parse_px(style['paddingTop']) * PX_TO_IN)
+                        tf.margin_right = Inches(parse_px(style['paddingRight']) * PX_TO_IN)
+                        tf.margin_bottom = Inches(parse_px(style['paddingBottom']) * PX_TO_IN)
+                        tf.margin_left = Inches(parse_px(style['paddingLeft']) * PX_TO_IN)
+
+                        p = tf.paragraphs[0]
+                        p.text = text_content
+
+                        # Font Style
+                        fs_raw = style['fontSize'].split()[0].replace('px', '')
+                        p.font.size = Pt(float(fs_raw) * 0.75)
+                        p.font.name = 'Calibri'
+                        p.font.bold = int(style['fontWeight']) >= 600 if style['fontWeight'].isdigit() else style['fontWeight'] == 'bold'
+
+                        t_color = parse_rgb(style['color'])
+                        if t_color: p.font.color.rgb = t_color
+
+                        if style['textAlign'] == 'center': p.alignment = PP_ALIGN.CENTER
+                        elif style['textAlign'] == 'right': p.alignment = PP_ALIGN.RIGHT
+                        else: p.alignment = PP_ALIGN.LEFT
+
+                        # Prevent children from being re-processed as separate shapes if they are just part of this text
+                        children = await el.query_selector_all('*')
+                        for child in children:
+                            processed_elements.add(child)
 
         await browser.close()
 
@@ -190,9 +209,19 @@ async def html_to_pptx(html_content, output_file="presentation.pptx"):
     print(f"Presentation saved as {output_file}")
 
 if __name__ == "__main__":
-    # Get HTML from command line or environment variable
     html_input = os.environ.get('CLIENT_PAYLOAD_HTML', '<h1>Empty Slide</h1>')
-    if len(sys.argv) > 1:
-        html_input = sys.argv[1]
+    output_file = "presentation.pptx"
 
-    asyncio.run(html_to_pptx(html_input))
+    if len(sys.argv) > 1:
+        # If two arguments, second is output file
+        if len(sys.argv) > 2:
+            html_input = sys.argv[1]
+            output_file = sys.argv[2]
+        else:
+            # If one argument, check if it's a file or HTML
+            if sys.argv[1].endswith('.pptx'):
+                output_file = sys.argv[1]
+            else:
+                html_input = sys.argv[1]
+
+    asyncio.run(html_to_pptx(html_input, output_file))
