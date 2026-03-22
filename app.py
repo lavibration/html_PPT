@@ -57,9 +57,12 @@ with col1:
             # Ensure Playwright browsers are installed (for Streamlit Cloud)
             import subprocess
             try:
-                subprocess.run(["playwright", "install", "chromium"], check=True)
-            except:
-                pass
+                # First check if already installed to save time
+                check_res = subprocess.run(["playwright", "install", "--help"], capture_output=True)
+                if check_res.returncode == 0:
+                    subprocess.run(["playwright", "install", "chromium"], check=True)
+            except Exception as e:
+                st.warning(f"Note: Playwright installation may have issues: {e}")
 
             with st.spinner("⏳ Conversion en cours... Cela peut prendre quelques secondes."):
                 output_file = "presentation_generee.pptx"
