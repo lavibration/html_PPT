@@ -66,12 +66,19 @@
         });
 
         dispatchBtn.addEventListener('click', async () => {
-            const repo = document.getElementById('repoPath').value;
-            const token = document.getElementById('ghToken').value;
+            const repo = document.getElementById('repoPath').value.trim();
+            const token = document.getElementById('ghToken').value.trim();
             const content = htmlInput.value.trim();
 
+            // Basic validation
             if (!repo || !token || !content) {
                 alert("Veuillez remplir tous les champs (Repo, Token et HTML).");
+                return;
+            }
+
+            // Regex check for owner/repo format
+            if (!/^[a-zA-Z0-9-._]+\/[a-zA-Z0-9-._]+$/.test(repo)) {
+                alert("Le format du dépôt doit être 'utilisateur/nom-du-repo'.");
                 return;
             }
 
@@ -79,12 +86,20 @@
             statusMsg.innerText = "⏳ Envoi à GitHub Actions...";
             statusMsg.className = "text-center text-blue-600 font-medium";
 
+            // Local file warning (CORS issues)
+            if (window.location.protocol === 'file:') {
+                console.warn("Attention : L'exécution depuis un fichier local (file://) peut provoquer des erreurs CORS 'Failed to fetch'. Il est recommandé d'héberger la page sur GitHub Pages.");
+            }
+
             try {
-                const response = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
+                const url = `https://api.github.com/repos/${repo}/dispatches`;
+                const response = await fetch(url, {
                     method: 'POST',
+                    mode: 'cors', // Explicitly request CORS
                     headers: {
-                        'Authorization': `token ${token}`,
-                        'Accept': 'application/vnd.github.v3+json',
+                        'Authorization': `Bearer ${token}`, // Use Bearer instead of token
+                        'Accept': 'application/vnd.github+json',
+                        'X-GitHub-Api-Version': '2022-11-28',
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
@@ -95,16 +110,25 @@
                     })
                 });
 
-                if (response.ok) {
-                    statusMsg.innerText = "🚀 Succès ! L'Action est lancée. Allez sur GitHub pour télécharger l'Artifact.";
+                if (response.status === 204) {
+                    statusMsg.innerText = "🚀 Succès ! L'Action est lancée. Allez sur GitHub pour télécharger l'Artifact (onglet Actions).";
                     statusMsg.className = "text-center text-green-600 font-medium";
+                } else if (response.status === 404) {
+                    throw new Error("Dépôt non trouvé. Vérifiez le nom 'user/repo' et les permissions de votre Token.");
+                } else if (response.status === 401) {
+                    throw new Error("Token invalide ou expiré.");
                 } else {
-                    const err = await response.json();
-                    throw new Error(err.message || "Erreur lors de l'envoi");
+                    const errData = await response.json().catch(() => ({ message: `Code HTTP ${response.status}` }));
+                    throw new Error(errData.message || "Erreur lors de l'envoi");
                 }
             } catch (error) {
-                statusMsg.innerText = "❌ Erreur : " + error.message;
+                if (error.message === 'Failed to fetch') {
+                    statusMsg.innerHTML = "❌ Erreur : 'Failed to fetch'.<br><span class='text-xs'>Causes possibles : CORS (si en local), réseau bloqué ou mauvaise URL API.</span>";
+                } else {
+                    statusMsg.innerText = "❌ Erreur : " + error.message;
+                }
                 statusMsg.className = "text-center text-red-600 font-medium";
+                console.error("Détail de l'erreur fetch :", error);
             } finally {
                 dispatchBtn.disabled = false;
             }

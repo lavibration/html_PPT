@@ -74,7 +74,7 @@ async def html_to_pptx(html_content, output_file="presentation.pptx"):
 
             for el in elements:
                 # Get computed styles and bounding box
-                style = await page.evaluate('(el) => {
+                style = await page.evaluate('''(el) => {
                     const s = window.getComputedStyle(el);
                     return {
                         fontSize: s.fontSize,
@@ -89,7 +89,7 @@ async def html_to_pptx(html_content, output_file="presentation.pptx"):
                         borderColor: s.borderColor,
                         borderRadius: s.borderRadius
                     };
-                }', el)
+                }''', el)
 
                 rect = await el.bounding_box()
                 if not rect or rect['width'] == 0 or rect['height'] == 0:
@@ -126,11 +126,11 @@ async def html_to_pptx(html_content, output_file="presentation.pptx"):
 
                 # Pass 3: Handle Text
                 # We check for direct text content
-                text_content = await page.evaluate('(el) => {
+                text_content = await page.evaluate('''(el) => {
                     const childNodes = Array.from(el.childNodes);
                     const textNode = childNodes.find(n => n.nodeType === 3 && n.textContent.trim().length > 0);
                     return textNode ? el.innerText : null;
-                }', el)
+                }''', el)
 
                 if text_content and el not in processed_elements:
                     # Add Text Box
@@ -177,7 +177,7 @@ async def html_to_pptx(html_content, output_file="presentation.pptx"):
                     shape.fill.foreground_color.rgb = bg_color
                     shape.line.width = Pt(0) # Default no border
 
-        browser.close()
+        await browser.close()
 
     prs.save(output_file)
     print(f"Presentation saved as {output_file}")
