@@ -1,8 +1,10 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import asyncio
 from script import html_to_pptx
 import os
 import base64
+import html
 
 # Page Config
 st.set_page_config(page_title="HTML to PPTX Converter", page_icon="📊", layout="wide")
@@ -87,28 +89,54 @@ with col1:
 with col2:
     st.subheader("👁️ Prévisualisation")
     if html_content:
-        # Inject Tailwind and fonts for the preview to match the generator's behavior
-        preview_html = f"""
-        <div style="width: 100%; height: 600px; border: 2px dashed #cbd5e1; border-radius: 1rem; overflow: auto; background: white;">
-            <iframe srcdoc="
-                <html>
-                    <head>
-                        <script src='https://cdn.tailwindcss.com'></script>
-                        <style>
-                            body {{ margin: 0; padding: 1rem; font-family: Calibri, sans-serif; background: #eee; min-height: 100vh; display: flex; align-items: center; justify-content: center; }}
-                            .preview-slide {{ width: 1280px; height: 720px; background: white; position: relative; overflow: hidden; transform: scale(0.5); transform-origin: center center; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }}
-                            @media (max-width: 1400px) {{ .preview-slide {{ transform: scale(0.4); }} }}
-                            @media (max-width: 1000px) {{ .preview-slide {{ transform: scale(0.3); }} }}
-                        </style>
-                    </head>
-                    <body>
-                        <div class='preview-slide'>{html_content.replace('"', '&quot;')}</div>
-                    </body>
-                </html>
-            " style="width: 100%; height: 100%; border: none;"></iframe>
-        </div>
+        # Wrap the user's content in a full HTML page for the component
+        # We use JS to scale the 1280x720 slide to fit the component width/height
+        preview_template = f"""
+        <html>
+            <head>
+                <script src='https://cdn.tailwindcss.com'></script>
+                <style>
+                    body {{
+                        margin: 0;
+                        padding: 0;
+                        background-color: #f1f5f9;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        height: 100vh;
+                        overflow: hidden;
+                    }}
+                    #preview-container {{
+                        width: 1280px;
+                        height: 720px;
+                        background: white;
+                        position: relative;
+                        overflow: hidden;
+                        box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+                        transform-origin: center center;
+                    }}
+                </style>
+                <script>
+                    function scalePreview() {{
+                        const container = document.getElementById('preview-container');
+                        const padding = 20;
+                        const availableWidth = window.innerWidth - padding;
+                        const availableHeight = window.innerHeight - padding;
+                        const scale = Math.min(availableWidth / 1280, availableHeight / 720);
+                        container.style.transform = `scale(${{scale}})`;
+                    }}
+                    window.addEventListener('resize', scalePreview);
+                    window.addEventListener('load', scalePreview);
+                </script>
+            </head>
+            <body>
+                <div id="preview-container">
+                    {html_content}
+                </div>
+            </body>
+        </html>
         """
-        st.markdown(preview_html, unsafe_allow_html=True)
+        components.html(preview_template, height=600)
     else:
         st.info("Collez du code pour voir l'aperçu ici.")
 
