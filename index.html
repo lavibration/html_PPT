@@ -77,12 +77,7 @@
             }
 
             const pptx = new PptxGenJS();
-
-            // Define a custom layout that matches our 1280x720 sandbox at 96 DPI
-            // 1280px / 96 = 13.3333 inches
-            // 720px / 96 = 7.5 inches
-            pptx.defineLayout({ name: 'SANDBOX_16_9', width: 13.3333, height: 7.5 });
-            pptx.layout = 'SANDBOX_16_9';
+            pptx.layout = 'LAYOUT_16x9';
 
             // Use a temporary div to parse slides
             const tempDiv = document.createElement('div');
@@ -109,19 +104,19 @@
                 clone.style.height = '720px';
                 clone.style.margin = '0';
                 clone.style.boxSizing = 'border-box';
-                clone.style.position = 'relative'; // Ensure top/left are relative to this
+                clone.style.position = 'relative';
                 sandbox.appendChild(clone);
 
                 // Allow styles to apply
-                await new Promise(r => setTimeout(r, 150));
+                await new Promise(r => setTimeout(r, 200));
 
                 const sandboxRect = sandbox.getBoundingClientRect();
                 const elements = [clone, ...clone.querySelectorAll('*')];
-                const processed = new Set();
+
+                // Two separate Sets to handle backgrounds/images vs text boxes
+                const textProcessed = new Set();
 
                 for (const el of elements) {
-                    if (processed.has(el)) continue;
-
                     const rect = el.getBoundingClientRect();
                     const style = window.getComputedStyle(el);
 
@@ -132,19 +127,23 @@
 
                     if (rect.width === 0 || rect.height === 0) continue;
 
-                    // Backgrounds & Borders
+                    // Pass 1: Handle Backgrounds and Shapes (always do this for every element)
                     const bgColor = getHexColor(style.backgroundColor);
                     const borderRadius = parseFloat(style.borderRadius) || 0;
 
-                    if (bgColor && bgColor !== 'FFFFFF') {
-                        pptSlide.addShape(pptx.ShapeType.rect, {
+                    if (bgColor && bgColor !== 'FFFFFF' && bgColor !== '00000000') {
+                        // For PPTXGenJS, rectRadius is a percentage of the smaller dimension (0.0 to 1.0)
+                        const isRounded = borderRadius > 2;
+                        const radiusVal = isRounded ? (borderRadius / Math.min(rect.width, rect.height)) : 0;
+
+                        pptSlide.addShape(isRounded ? pptx.ShapeType.ROUND_RECTANGLE : pptx.ShapeType.RECTANGLE, {
                             x: `${x}%`, y: `${y}%`, w: `${w}%`, h: `${h}%`,
                             fill: { color: bgColor },
-                            rectRadius: Math.min(borderRadius / rect.width, 1) // Percentage of width
+                            rectRadius: Math.min(radiusVal, 0.5)
                         });
                     }
 
-                    // Images
+                    // Pass 2: Handle Images
                     if (el.tagName === 'IMG') {
                         const src = el.getAttribute('src');
                         if (src) {
@@ -152,45 +151,46 @@
                                 path: src,
                                 x: `${x}%`, y: `${y}%`, w: `${w}%`, h: `${h}%`
                             });
-                            processed.add(el);
-                            continue;
                         }
                     }
 
-                    // Text Logic
+                    // Pass 3: Handle Text (only if not already processed as part of a parent)
+                    if (textProcessed.has(el)) continue;
+
                     const hasDirectText = Array.from(el.childNodes).some(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim());
                     if (hasDirectText) {
                         const fontSizePx = parseFloat(style.fontSize);
                         const fontSizePt = (fontSizePx * 72) / 96;
 
-                        // Handle Padding for text box positioning
                         const pt = parseFloat(style.paddingTop);
                         const pl = parseFloat(style.paddingLeft);
                         const pr = parseFloat(style.paddingRight);
                         const pb = parseFloat(style.paddingBottom);
 
-                        // Line spacing calculation
                         const lineHeightPx = parseFloat(style.lineHeight);
                         let lineSpacing = undefined;
                         if (!isNaN(lineHeightPx)) {
-                            lineSpacing = (lineHeightPx / fontSizePx) * 100; // Percentage in pptxgenjs
+                            lineSpacing = (lineHeightPx / fontSizePx) * 100;
                         }
 
                         pptSlide.addText(el.innerText.trim(), {
                             x: `${x}%`, y: `${y}%`, w: `${w}%`, h: `${h}%`,
-                            fontSize: Math.round(fontSizePt * 0.9), // Small correction factor for PPT rendering
+                            fontSize: Math.max(Math.round(fontSizePt), 1),
                             fontFace: style.fontFamily.split(',')[0].replace(/['"]/g, '') || 'Calibri',
                             color: getHexColor(style.color) || '000000',
                             bold: style.fontWeight === 'bold' || parseInt(style.fontWeight) >= 600,
                             italic: style.fontStyle === 'italic',
                             align: style.textAlign === 'start' ? 'left' : (style.textAlign === 'end' ? 'right' : style.textAlign),
-                            valign: 'top', // Crucial for matching HTML layout
-                            bullet: style.display === 'list-item',
+                            valign: 'top',
+                            margin: 0,
+                            wrap: true,
+                            bullet: style.display === 'list-item' ? { indent: 20 } : false,
                             lineSpacing: lineSpacing,
-                            padding: [pt, pr, pb, pl] // Top, Right, Bottom, Left in Points
+                            padding: [pt, pr, pb, pl]
                         });
 
-                        el.querySelectorAll('*').forEach(child => processed.add(child));
+                        // Mark all nested text-containing nodes as processed
+                        el.querySelectorAll('*').forEach(child => textProcessed.add(child));
                     }
                 }
             }
