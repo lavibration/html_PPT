@@ -77,7 +77,12 @@
             }
 
             const pptx = new PptxGenJS();
-            pptx.layout = 'LAYOUT_16x9';
+
+            // Define a custom layout that matches our 1280x720 sandbox at 96 DPI
+            // 1280px / 96 = 13.3333 inches
+            // 720px / 96 = 7.5 inches
+            pptx.defineLayout({ name: 'SANDBOX_16_9', width: 13.3333, height: 7.5 });
+            pptx.layout = 'SANDBOX_16_9';
 
             // Use a temporary div to parse slides
             const tempDiv = document.createElement('div');
@@ -98,23 +103,20 @@
                 const pptSlide = pptx.addSlide();
 
                 // Render slide content in sandbox for measurement
-                // We use outerHTML to keep the slide's own styles (like bg color, padding)
                 sandbox.innerHTML = '';
                 const clone = slideEl.cloneNode(true);
                 clone.style.width = '1280px';
                 clone.style.height = '720px';
                 clone.style.margin = '0';
                 clone.style.boxSizing = 'border-box';
+                clone.style.position = 'relative'; // Ensure top/left are relative to this
                 sandbox.appendChild(clone);
 
                 // Allow styles to apply
                 await new Promise(r => setTimeout(r, 150));
 
                 const sandboxRect = sandbox.getBoundingClientRect();
-                // Get all elements including the slide container itself
                 const elements = [clone, ...clone.querySelectorAll('*')];
-
-                // Map of processed elements to avoid duplicates
                 const processed = new Set();
 
                 for (const el of elements) {
@@ -128,19 +130,21 @@
                     const w = (rect.width / sandboxRect.width) * 100;
                     const h = (rect.height / sandboxRect.height) * 100;
 
-                    // Skip zero-size elements
                     if (rect.width === 0 || rect.height === 0) continue;
 
-                    // Handle Backgrounds
+                    // Backgrounds & Borders
                     const bgColor = getHexColor(style.backgroundColor);
+                    const borderRadius = parseFloat(style.borderRadius) || 0;
+
                     if (bgColor && bgColor !== 'FFFFFF') {
                         pptSlide.addShape(pptx.ShapeType.rect, {
                             x: `${x}%`, y: `${y}%`, w: `${w}%`, h: `${h}%`,
-                            fill: { color: bgColor }
+                            fill: { color: bgColor },
+                            rectRadius: Math.min(borderRadius / rect.width, 1) // Percentage of width
                         });
                     }
 
-                    // Handle Images
+                    // Images
                     if (el.tagName === 'IMG') {
                         const src = el.getAttribute('src');
                         if (src) {
@@ -153,26 +157,39 @@
                         }
                     }
 
-                    // Handle Text
-                    // We only want leaf nodes with text or nodes with direct text content
-                    const hasText = Array.from(el.childNodes).some(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim());
-                    if (hasText) {
+                    // Text Logic
+                    const hasDirectText = Array.from(el.childNodes).some(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim());
+                    if (hasDirectText) {
                         const fontSizePx = parseFloat(style.fontSize);
-                        const fontSizePt = (fontSizePx * 72) / 96; // Standard conversion
+                        const fontSizePt = (fontSizePx * 72) / 96;
+
+                        // Handle Padding for text box positioning
+                        const pt = parseFloat(style.paddingTop);
+                        const pl = parseFloat(style.paddingLeft);
+                        const pr = parseFloat(style.paddingRight);
+                        const pb = parseFloat(style.paddingBottom);
+
+                        // Line spacing calculation
+                        const lineHeightPx = parseFloat(style.lineHeight);
+                        let lineSpacing = undefined;
+                        if (!isNaN(lineHeightPx)) {
+                            lineSpacing = (lineHeightPx / fontSizePx) * 100; // Percentage in pptxgenjs
+                        }
 
                         pptSlide.addText(el.innerText.trim(), {
                             x: `${x}%`, y: `${y}%`, w: `${w}%`, h: `${h}%`,
-                            fontSize: Math.round(fontSizePt),
+                            fontSize: Math.round(fontSizePt * 0.9), // Small correction factor for PPT rendering
                             fontFace: style.fontFamily.split(',')[0].replace(/['"]/g, '') || 'Calibri',
                             color: getHexColor(style.color) || '000000',
                             bold: style.fontWeight === 'bold' || parseInt(style.fontWeight) >= 600,
                             italic: style.fontStyle === 'italic',
-                            align: style.textAlign,
-                            valign: 'middle',
-                            bullet: style.display === 'list-item'
+                            align: style.textAlign === 'start' ? 'left' : (style.textAlign === 'end' ? 'right' : style.textAlign),
+                            valign: 'top', // Crucial for matching HTML layout
+                            bullet: style.display === 'list-item',
+                            lineSpacing: lineSpacing,
+                            padding: [pt, pr, pb, pl] // Top, Right, Bottom, Left in Points
                         });
 
-                        // Mark all children as processed to avoid double text
                         el.querySelectorAll('*').forEach(child => processed.add(child));
                     }
                 }
