@@ -38,6 +38,9 @@ def parse_px(px_str):
         return 0.0
 
 async def html_to_pptx(html_content, output_file="presentation.pptx"):
+    # Ensure Playwright dependencies are installed if not already
+    # For Streamlit Cloud, it's better to run 'playwright install' as a separate step
+
     prs = Presentation()
     # Set slide size to 16:9
     prs.slide_width = Inches(WIDTH_IN)
