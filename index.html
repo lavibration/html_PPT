@@ -3,239 +3,111 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Convertisseur HTML vers PPTX (V3)</title>
-    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
-    <script src="https://cdn.jsdelivr.net/gh/gitbrent/pptxgenjs/dist/pptxgen.bundle.js"></script>
+    <title>HTML to PPTX Converter (GitHub Powered)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .slide-preview {
+            width: 1280px;
+            height: 720px;
+            background: white;
+            position: relative;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            transform-origin: top left;
+        }
+    </style>
 </head>
-<body class="bg-gray-100 min-h-screen p-8">
-    <div class="max-w-6xl mx-auto bg-white p-6 rounded-lg shadow-md">
-        <h1 class="text-3xl font-bold mb-4 text-gray-800 text-center">Convertisseur HTML vers PowerPoint (Visuel)</h1>
+<body class="bg-slate-50 min-h-screen p-6 font-sans">
+    <div class="max-w-7xl mx-auto">
+        <header class="flex justify-between items-center mb-8">
+            <h1 class="text-3xl font-extrabold text-slate-800">HTML ➔ <span class="text-orange-600">PPTX</span></h1>
+            <div class="flex gap-4">
+                <input type="text" id="repoPath" placeholder="user/repo" class="px-4 py-2 border rounded-lg text-sm w-48 shadow-sm focus:ring-2 focus:ring-orange-500 outline-none">
+                <input type="password" id="ghToken" placeholder="GitHub PAT (repo scope)" class="px-4 py-2 border rounded-lg text-sm w-48 shadow-sm focus:ring-2 focus:ring-orange-500 outline-none">
+            </div>
+        </header>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-                <label for="htmlInput" class="block text-sm font-medium text-gray-700 mb-2">Collez votre code HTML ici :</label>
-                <textarea id="htmlInput" class="w-full h-[500px] p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 font-mono text-xs" placeholder="<section class='slide'>...</section>"></textarea>
-
-                <div class="mt-4 flex gap-4">
-                    <button id="generateBtn" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition duration-200">
-                        Générer le PPTX
-                    </button>
-                    <button id="clearBtn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-3 px-6 rounded-lg transition duration-200">
-                        Vider
-                    </button>
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-8">
+            <!-- Left: Input & Config -->
+            <div class="space-y-6">
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <label class="block text-sm font-semibold text-slate-700 mb-2">Code HTML de la Slide</label>
+                    <textarea id="htmlContent" class="w-full h-[450px] p-4 font-mono text-xs border rounded-xl focus:ring-2 focus:ring-orange-500 outline-none resize-none" placeholder="<section class='slide p-10'>...</section>"></textarea>
                 </div>
+
+                <button id="dispatchBtn" class="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-4 rounded-xl shadow-lg transition-all transform hover:-translate-y-1 active:scale-95 disabled:opacity-50">
+                    Générer via GitHub Actions
+                </button>
+                <p id="statusMsg" class="text-center text-sm font-medium"></p>
             </div>
 
+            <!-- Right: Live Preview -->
             <div class="flex flex-col">
-                <h2 class="text-lg font-semibold mb-2 text-gray-700">Prévisualisation (Mode Rendu)</h2>
-                <div id="previewContainer" class="flex-1 border-2 border-dashed border-gray-300 rounded-lg overflow-auto bg-white p-0 relative shadow-inner" style="min-height: 500px;">
-                    <div id="previewArea" class="w-[1280px] h-[720px] bg-white origin-top-left transform scale-[0.35] lg:scale-[0.45] xl:scale-[0.5] shadow-lg border border-gray-200 mx-auto overflow-hidden prose max-w-none">
-                        <p class="p-10 text-gray-500 italic text-3xl">Le rendu apparaîtra ici...</p>
+                <h2 class="text-lg font-bold text-slate-700 mb-4">Prévisualisation</h2>
+                <div id="previewContainer" class="flex-1 bg-slate-200 rounded-2xl border-2 border-dashed border-slate-300 overflow-hidden relative" style="min-height: 500px;">
+                    <div id="previewArea" class="slide-preview scale-[0.3] sm:scale-[0.4] lg:scale-[0.45] xl:scale-[0.5] mx-auto">
+                        <div class="p-20 text-center text-slate-400">
+                            <p class="text-4xl font-bold italic">Le rendu apparaîtra ici...</p>
+                        </div>
                     </div>
-                </div>
-                <div class="mt-2 text-xs text-gray-500 text-center">
-                    Note : La mise en page du PPTX sera basée sur ce rendu visuel.
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Hidden sandbox for exact measurement -->
-    <div id="sandbox" class="prose max-w-none" style="position: absolute; left: -10000px; width: 1280px; height: 720px; background: white; overflow: hidden;"></div>
-
     <script>
-        const generateBtn = document.getElementById('generateBtn');
-        const clearBtn = document.getElementById('clearBtn');
-        const htmlInput = document.getElementById('htmlInput');
+        const htmlInput = document.getElementById('htmlContent');
         const previewArea = document.getElementById('previewArea');
-        const sandbox = document.getElementById('sandbox');
+        const dispatchBtn = document.getElementById('dispatchBtn');
+        const statusMsg = document.getElementById('statusMsg');
 
-        // Initial update
+        // Update preview in real-time
         htmlInput.addEventListener('input', () => {
-            previewArea.innerHTML = htmlInput.value;
+            previewArea.innerHTML = htmlInput.value || '<div class="p-20 text-center text-slate-400">Rendu vide</div>';
         });
 
-        clearBtn.addEventListener('click', () => {
-            htmlInput.value = '';
-            previewArea.innerHTML = '<p class="text-gray-500 italic">Le rendu apparaîtra ici...</p>';
-        });
+        dispatchBtn.addEventListener('click', async () => {
+            const repo = document.getElementById('repoPath').value;
+            const token = document.getElementById('ghToken').value;
+            const content = htmlInput.value.trim();
 
-        function getHexColor(rgb) {
-            if (!rgb || rgb === 'rgba(0, 0, 0, 0)' || rgb === 'transparent') return null;
-            const parts = rgb.match(/\d+/g);
-            if (parts && parts.length >= 3) {
-                return parts.slice(0, 3).map(x => parseInt(x).toString(16).padStart(2, '0')).join('').toUpperCase();
-            }
-            return null;
-        }
-
-        generateBtn.addEventListener('click', async () => {
-            const htmlCode = htmlInput.value.trim();
-            if (!htmlCode) {
-                alert('Veuillez coller du code HTML d\'abord.');
+            if (!repo || !token || !content) {
+                alert("Veuillez remplir tous les champs (Repo, Token et HTML).");
                 return;
             }
 
-            const pptx = new PptxGenJS();
-            pptx.layout = 'LAYOUT_16x9';
+            dispatchBtn.disabled = true;
+            statusMsg.innerText = "⏳ Envoi à GitHub Actions...";
+            statusMsg.className = "text-center text-blue-600 font-medium";
 
-            // Use a temporary div to parse slides
-            const tempDiv = document.createElement('div');
-            tempDiv.innerHTML = htmlCode;
+            try {
+                const response = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `token ${token}`,
+                        'Accept': 'application/vnd.github.v3+json',
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        event_type: 'generate_pptx',
+                        client_payload: {
+                            html_content: content
+                        }
+                    })
+                });
 
-            // If the user pasted multiple slides, they should be in section or .slide tags
-            let slideEls = Array.from(tempDiv.querySelectorAll('section, .slide'));
-
-            // If no slide tags found, treat the whole input as one slide
-            if (slideEls.length === 0) {
-                const wrapper = document.createElement('section');
-                wrapper.className = 'slide p-10';
-                wrapper.innerHTML = htmlCode;
-                slideEls = [wrapper];
-            }
-
-            for (const slideEl of slideEls) {
-                const pptSlide = pptx.addSlide();
-
-                // Render slide content in sandbox for measurement
-                sandbox.innerHTML = '';
-                const clone = slideEl.cloneNode(true);
-                clone.style.width = '1280px';
-                clone.style.height = '720px';
-                clone.style.margin = '0';
-                clone.style.boxSizing = 'border-box';
-                clone.style.position = 'relative';
-                sandbox.appendChild(clone);
-
-                // Allow styles to apply
-                await new Promise(r => setTimeout(r, 200));
-
-                const sandboxRect = sandbox.getBoundingClientRect();
-                const elements = [clone, ...clone.querySelectorAll('*')];
-
-                // Map of elements to skip for background rendering if they are handled by addText
-                const backgroundsHandledByText = new Set();
-                const textProcessed = new Set();
-
-                // Pass 1: Identify elements with text to handle their backgrounds directly
-                for (const el of elements) {
-                    const hasDirectText = Array.from(el.childNodes).some(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim());
-                    if (hasDirectText) {
-                        backgroundsHandledByText.add(el);
-                    }
+                if (response.ok) {
+                    statusMsg.innerText = "🚀 Succès ! L'Action est lancée. Allez sur GitHub pour télécharger l'Artifact.";
+                    statusMsg.className = "text-center text-green-600 font-medium";
+                } else {
+                    const err = await response.json();
+                    throw new Error(err.message || "Erreur lors de l'envoi");
                 }
-
-                for (const el of elements) {
-                    const rect = el.getBoundingClientRect();
-                    const style = window.getComputedStyle(el);
-
-                    const x = ((rect.left - sandboxRect.left) / sandboxRect.width) * 100;
-                    const y = ((rect.top - sandboxRect.top) / sandboxRect.height) * 100;
-                    const w = (rect.width / sandboxRect.width) * 100;
-                    const h = (rect.height / sandboxRect.height) * 100;
-
-                    if (rect.width === 0 || rect.height === 0) continue;
-
-                    const bgColor = getHexColor(style.backgroundColor);
-                    const borderRadius = parseFloat(style.borderRadius) || 0;
-                    const borderWidth = parseFloat(style.borderWidth) || 0;
-                    const borderColor = getHexColor(style.borderColor);
-
-                    // Skip purely transparent containers without borders
-                    // We only skip if both background and border are absent
-                    if (!bgColor && borderWidth === 0) {
-                        // Keep processing for images/text
-                    } else if (!backgroundsHandledByText.has(el)) {
-                        // Pass 2: Handle Backgrounds for containers WITHOUT direct text
-                        // We also skip white backgrounds for the root slide element if it's redundant
-                        const isRootSlide = el === clone;
-                        const isWhite = bgColor === 'FFFFFF';
-
-                        if (bgColor && bgColor !== '00000000' && !(isRootSlide && isWhite)) {
-                            const isRounded = borderRadius > 2;
-                            const radiusVal = isRounded ? (borderRadius / Math.min(rect.width, rect.height)) : 0;
-                            const shapeType = isRounded ? 'roundRect' : 'rect';
-
-                            pptSlide.addShape(shapeType, {
-                                x: `${x}%`, y: `${y}%`, w: `${w}%`, h: `${h}%`,
-                                fill: { color: bgColor },
-                                line: borderWidth > 0 ? { color: borderColor || '000000', width: borderWidth * 0.75 } : undefined,
-                                rectRadius: Math.min(radiusVal, 0.5)
-                            });
-                        }
-                    }
-
-                    // Pass 3: Handle Images
-                    if (el.tagName === 'IMG') {
-                        const src = el.getAttribute('src');
-                        if (src) {
-                            pptSlide.addImage({
-                                path: src,
-                                x: `${x}%`, y: `${y}%`, w: `${w}%`, h: `${h}%`
-                            });
-                        }
-                    }
-
-                    // Pass 4: Handle Text (and integrated backgrounds)
-                    if (textProcessed.has(el)) continue;
-
-                    const hasDirectText = Array.from(el.childNodes).some(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim());
-                    if (hasDirectText) {
-                        const fontSizePx = parseFloat(style.fontSize);
-                        const fontSizePt = (fontSizePx * 72) / 96;
-
-                        // Convert padding from pixels to points (1pt = 1.333px)
-                        const pt = parseFloat(style.paddingTop) * 0.75;
-                        const pl = parseFloat(style.paddingLeft) * 0.75;
-                        const pr = parseFloat(style.paddingRight) * 0.75;
-                        const pb = parseFloat(style.paddingBottom) * 0.75;
-
-                        const lineHeightPx = parseFloat(style.lineHeight);
-                        let lineSpacing = undefined;
-                        if (!isNaN(lineHeightPx)) {
-                            lineSpacing = (lineHeightPx / fontSizePx) * 100;
-                        }
-
-                        // Options for addText including integrated background/border
-                        const textOptions = {
-                            x: `${x}%`, y: `${y}%`, w: `${w}%`, h: `${h}%`,
-                            fontSize: Math.max(Math.round(fontSizePt), 1),
-                            fontFace: style.fontFamily.split(',')[0].replace(/['"]/g, '') || 'Calibri',
-                            color: getHexColor(style.color) || '000000',
-                            bold: style.fontWeight === 'bold' || parseInt(style.fontWeight) >= 600,
-                            italic: style.fontStyle === 'italic',
-                            align: style.textAlign === 'start' ? 'left' : (style.textAlign === 'end' ? 'right' : style.textAlign),
-                            valign: 'top',
-                            margin: 0,
-                            wrap: true,
-                            bullet: style.display === 'list-item' ? { indent: 20 } : false,
-                            lineSpacing: lineSpacing,
-                            padding: [pt, pr, pb, pl],
-                        };
-
-                        // Integrate Background and Border into the Text Box itself
-                        if (bgColor && bgColor !== 'FFFFFF' && bgColor !== '00000000') {
-                            textOptions.fill = { color: bgColor };
-                        }
-                        if (borderWidth > 0) {
-                            textOptions.line = { color: borderColor || '000000', width: borderWidth * 0.75 };
-                        }
-                        // Note: PPTXGenJS text boxes don't support rectRadius as easily as shapes in all versions,
-                        // but we'll try to set it if it's a known property
-                        if (borderRadius > 2) {
-                            textOptions.rectRadius = Math.min(borderRadius / Math.min(rect.width, rect.height), 0.5);
-                        }
-
-                        pptSlide.addText(el.innerText.trim(), textOptions);
-
-                        // Mark all nested text-containing nodes as processed
-                        el.querySelectorAll('*').forEach(child => textProcessed.add(child));
-                    }
-                }
+            } catch (error) {
+                statusMsg.innerText = "❌ Erreur : " + error.message;
+                statusMsg.className = "text-center text-red-600 font-medium";
+            } finally {
+                dispatchBtn.disabled = false;
             }
-
-            pptx.writeFile({ fileName: 'presentation_generee.pptx' })
-                .catch(err => alert('Erreur : ' + err));
         });
     </script>
 </body>
