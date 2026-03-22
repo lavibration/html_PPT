@@ -169,7 +169,7 @@ async def html_to_pptx(html_content, output_file="presentation.pptx"):
                     # Fill background if needed
                     if has_visible_bg:
                         txBox.fill.solid()
-                        txBox.fill.foreground_color.rgb = bg_color
+                        txBox.fill.fore_color.rgb = bg_color
 
                     # Mark children as processed to avoid duplicates in deep trees
                     children = await el.query_selector_all('*')
@@ -181,7 +181,7 @@ async def html_to_pptx(html_content, output_file="presentation.pptx"):
                     from pptx.enum.shapes import MSO_SHAPE
                     shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x), Inches(y), Inches(w), Inches(h))
                     shape.fill.solid()
-                    shape.fill.foreground_color.rgb = bg_color
+                    shape.fill.fore_color.rgb = bg_color
                     shape.line.width = Pt(0) # Default no border
 
         await browser.close()
