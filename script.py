@@ -53,7 +53,7 @@ async def html_to_pptx(html_content, output_file="presentation.pptx"):
         <head>
             <script src="https://cdn.tailwindcss.com"></script>
             <style>
-                body {{ margin: 0; padding: 0; overflow: hidden; }}
+                body {{ margin: 0; padding: 0; overflow: hidden; font-family: Calibri, sans-serif; }}
                 .slide {{ width: 1280px; height: 720px; position: relative; overflow: hidden; background: white; }}
             </style>
         </head>
@@ -98,11 +98,20 @@ async def html_to_pptx(html_content, output_file="presentation.pptx"):
                         paddingRight: s.paddingRight,
                         paddingBottom: s.paddingBottom,
                         paddingLeft: s.paddingLeft,
-                        borderWidth: s.borderWidth,
+                        borderTopWidth: s.borderTopWidth,
+                        borderRightWidth: s.borderRightWidth,
+                        borderBottomWidth: s.borderBottomWidth,
+                        borderLeftWidth: s.borderLeftWidth,
                         borderColor: s.borderColor,
+                        borderTopColor: s.borderTopColor,
+                        borderRightColor: s.borderRightColor,
+                        borderBottomColor: s.borderBottomColor,
+                        borderLeftColor: s.borderLeftColor,
                         borderRadius: s.borderRadius,
                         visibility: s.visibility,
-                        opacity: s.opacity
+                        opacity: s.opacity,
+                        boxShadow: s.boxShadow,
+                        textShadow: s.textShadow
                     };
                 }''', el)
 
@@ -126,7 +135,6 @@ async def html_to_pptx(html_content, output_file="presentation.pptx"):
 
                 # 2. Extract Text Content
                 text_content = await page.evaluate('''(el) => {
-                    // Check if it's a leaf node with text or has direct text children
                     const childNodes = Array.from(el.childNodes);
                     const hasDirectText = childNodes.some(n => n.nodeType === 3 && n.textContent.trim().length > 0);
                     if (hasDirectText) return el.innerText.trim();
@@ -135,20 +143,27 @@ async def html_to_pptx(html_content, output_file="presentation.pptx"):
 
                 # 3. Background and Border logic
                 bg_color = parse_rgb(style['backgroundColor'])
-                border_color = parse_rgb(style['borderColor'])
-                border_width = parse_px(style['borderWidth'])
                 border_radius = parse_px(style['borderRadius'])
 
-                has_visible_bg = bg_color is not None
-                has_visible_border = border_width > 0 and border_color is not None
+                # Check for individual borders
+                btw = parse_px(style['borderTopWidth'])
+                brw = parse_px(style['borderRightWidth'])
+                bbw = parse_px(style['borderBottomWidth'])
+                blw = parse_px(style['borderLeftWidth'])
 
-                if text_content or has_visible_bg or has_visible_border:
-                    # Determine Shape Type
+                is_uniform_border = (btw == brw == bbw == blw) and btw > 0
+                has_visible_bg = bg_color is not None
+
+                # Create a shape only if it has a visible effect or text
+                if text_content or has_visible_bg or is_uniform_border:
                     shape_type = MSO_SHAPE.RECTANGLE
                     if border_radius > 0:
                         shape_type = MSO_SHAPE.ROUNDED_RECTANGLE
 
                     shape = slide.shapes.add_shape(shape_type, Inches(x), Inches(y), Inches(w), Inches(h))
+
+                    # DISABLE ALL DEFAULT SHADOWS
+                    shape.shadow.inherit = False
 
                     # Fill
                     if has_visible_bg:
@@ -157,17 +172,21 @@ async def html_to_pptx(html_content, output_file="presentation.pptx"):
                     else:
                         shape.fill.background()
 
-                    # Outline (Border)
-                    if has_visible_border:
-                        shape.line.color.rgb = border_color
-                        shape.line.width = Pt(border_width * 0.75) # px to pt
+                    # Outline (Uniform Border)
+                    if is_uniform_border:
+                        b_color = parse_rgb(style['borderTopColor']) or parse_rgb(style['borderColor'])
+                        if b_color:
+                            shape.line.color.rgb = b_color
+                            shape.line.width = Pt(btw * 0.75)
+                        else:
+                            shape.line.fill.background()
                     else:
-                        # CRITICAL: Prevents default blue border
+                        # CRITICAL: Prevents default blue/white border
                         shape.line.fill.background()
+                        shape.line.width = Pt(0)
 
                     # Border Radius adjustment
                     if border_radius > 0 and shape_type == MSO_SHAPE.ROUNDED_RECTANGLE:
-                        # PPT adjustment is ratio of the smallest dimension (0 to 0.5)
                         min_dim = min(rect['width'], rect['height'])
                         adj_val = min(0.5, border_radius / min_dim) if min_dim > 0 else 0
                         shape.adjustments[0] = adj_val
@@ -176,7 +195,6 @@ async def html_to_pptx(html_content, output_file="presentation.pptx"):
                     if text_content:
                         tf = shape.text_frame
                         tf.word_wrap = True
-                        # Apply Padding as margins
                         tf.margin_top = Inches(parse_px(style['paddingTop']) * PX_TO_IN)
                         tf.margin_right = Inches(parse_px(style['paddingRight']) * PX_TO_IN)
                         tf.margin_bottom = Inches(parse_px(style['paddingBottom']) * PX_TO_IN)
@@ -191,6 +209,9 @@ async def html_to_pptx(html_content, output_file="presentation.pptx"):
                         p.font.name = 'Calibri'
                         p.font.bold = int(style['fontWeight']) >= 600 if style['fontWeight'].isdigit() else style['fontWeight'] == 'bold'
 
+                        # DISABLE TEXT SHADOW
+                        p.font.shadow = False
+
                         t_color = parse_rgb(style['color'])
                         if t_color: p.font.color.rgb = t_color
 
@@ -198,10 +219,32 @@ async def html_to_pptx(html_content, output_file="presentation.pptx"):
                         elif style['textAlign'] == 'right': p.alignment = PP_ALIGN.RIGHT
                         else: p.alignment = PP_ALIGN.LEFT
 
-                        # Prevent children from being re-processed as separate shapes if they are just part of this text
+                        # Block child text from double-rendering
                         children = await el.query_selector_all('*')
                         for child in children:
                             processed_elements.add(child)
+
+                # 4. Handle non-uniform borders as separate lines
+                if not is_uniform_border:
+                    border_configs = [
+                        (btw, style['borderTopColor'], x, y, w, 0),    # Top
+                        (brw, style['borderRightColor'], x + w, y, 0, h), # Right
+                        (bbw, style['borderBottomColor'], x, y + h, w, 0), # Bottom
+                        (blw, style['borderLeftColor'], x, y, 0, h)     # Left
+                    ]
+                    for b_width, b_color_str, lx, ly, lw, lh in border_configs:
+                        if b_width > 0:
+                            b_color = parse_rgb(b_color_str)
+                            if b_color:
+                                # Use a small rectangle as a line
+                                line_w = max(lw, b_width * PX_TO_IN) if lh > 0 else lw
+                                line_h = max(lh, b_width * PX_TO_IN) if lw > 0 else lh
+                                line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(lx), Inches(ly), Inches(line_w), Inches(line_h))
+                                line.shadow.inherit = False
+                                line.fill.solid()
+                                line.fill.fore_color.rgb = b_color
+                                line.line.fill.background()
+                                line.line.width = Pt(0)
 
         await browser.close()
 
@@ -213,12 +256,10 @@ if __name__ == "__main__":
     output_file = "presentation.pptx"
 
     if len(sys.argv) > 1:
-        # If two arguments, second is output file
         if len(sys.argv) > 2:
             html_input = sys.argv[1]
             output_file = sys.argv[2]
         else:
-            # If one argument, check if it's a file or HTML
             if sys.argv[1].endswith('.pptx'):
                 output_file = sys.argv[1]
             else:
