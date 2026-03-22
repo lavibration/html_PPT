@@ -103,7 +103,12 @@ async def html_to_pptx(html_content, output_file="presentation.pptx"):
 
                 # Pass 1: Handle Background/Shapes
                 bg_color = parse_rgb(style['backgroundColor'])
-                border_width = float(style['borderWidth'].replace('px', '')) if style['borderWidth'] else 0
+
+                # Handle multi-value border width (e.g. '0px 0px 0px 6px')
+                border_raw = style['borderWidth'] or '0'
+                # Remove 'px' and split by space
+                border_values = [float(v.replace('px', '')) for v in border_raw.split() if v.strip()]
+                border_width = max(border_values) if border_values else 0
 
                 # Check if this element should be a shape or just a container
                 has_visible_bg = bg_color is not None
@@ -142,7 +147,9 @@ async def html_to_pptx(html_content, output_file="presentation.pptx"):
                     p.text = text_content.strip()
 
                     # Apply styles
-                    font_size = float(style['fontSize'].replace('px', '')) * 0.75 # px to pt
+                    # Handle possible complex font-size strings (though usually simple px)
+                    fs_raw = style['fontSize'].split()[0].replace('px', '')
+                    font_size = float(fs_raw) * 0.75 # px to pt
                     p.font.size = Pt(font_size)
                     p.font.name = 'Calibri'
                     p.font.bold = int(style['fontWeight']) >= 600 if style['fontWeight'].isdigit() else style['fontWeight'] == 'bold'
