@@ -3,164 +3,183 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Convertisseur HTML vers PPTX</title>
+    <title>Convertisseur HTML vers PPTX (V3)</title>
     <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
     <script src="https://cdn.jsdelivr.net/gh/gitbrent/pptxgenjs/dist/pptxgen.bundle.js"></script>
 </head>
 <body class="bg-gray-100 min-h-screen p-8">
-    <div class="max-w-4xl mx-auto bg-white p-6 rounded-lg shadow-md">
-        <h1 class="text-2xl font-bold mb-4 text-gray-800 text-center">Convertisseur HTML vers PowerPoint</h1>
+    <div class="max-w-6xl mx-auto bg-white p-6 rounded-lg shadow-md">
+        <h1 class="text-3xl font-bold mb-4 text-gray-800 text-center">Convertisseur HTML vers PowerPoint (Visuel)</h1>
 
-        <div class="mb-4">
-            <label for="htmlInput" class="block text-sm font-medium text-gray-700 mb-2">Collez votre code HTML ici :</label>
-            <textarea id="htmlInput" class="w-full h-64 p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 font-mono text-sm" placeholder="<section class='slide'><h1>Mon Titre</h1><p>Mon texte</p></section>"></textarea>
-        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+                <label for="htmlInput" class="block text-sm font-medium text-gray-700 mb-2">Collez votre code HTML ici :</label>
+                <textarea id="htmlInput" class="w-full h-[500px] p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 font-mono text-xs" placeholder="<section class='slide'>...</section>"></textarea>
 
-        <div class="flex justify-center mb-6">
-            <button id="generateBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-lg transition duration-200">
-                Générer le PPTX
-            </button>
-        </div>
+                <div class="mt-4 flex gap-4">
+                    <button id="generateBtn" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition duration-200">
+                        Générer le PPTX
+                    </button>
+                    <button id="clearBtn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-3 px-6 rounded-lg transition duration-200">
+                        Vider
+                    </button>
+                </div>
+            </div>
 
-        <div class="mt-8 border-t pt-6">
-            <h2 class="text-lg font-semibold mb-3 text-gray-700">Prévisualisation (Simple)</h2>
-            <div id="previewArea" class="border border-dashed border-gray-400 p-4 min-h-[100px] bg-gray-50 rounded-md prose max-w-none">
-                <p class="text-gray-500 italic">La prévisualisation apparaîtra ici...</p>
+            <div class="flex flex-col">
+                <h2 class="text-lg font-semibold mb-2 text-gray-700">Prévisualisation (Mode Rendu)</h2>
+                <div id="previewContainer" class="flex-1 border-2 border-dashed border-gray-300 rounded-lg overflow-auto bg-white p-0 relative shadow-inner" style="min-height: 500px;">
+                    <div id="previewArea" class="w-[1280px] h-[720px] bg-white origin-top-left transform scale-[0.35] lg:scale-[0.45] xl:scale-[0.5] shadow-lg border border-gray-200 mx-auto overflow-hidden prose max-w-none">
+                        <p class="p-10 text-gray-500 italic text-3xl">Le rendu apparaîtra ici...</p>
+                    </div>
+                </div>
+                <div class="mt-2 text-xs text-gray-500 text-center">
+                    Note : La mise en page du PPTX sera basée sur ce rendu visuel.
+                </div>
             </div>
         </div>
     </div>
 
+    <!-- Hidden sandbox for exact measurement -->
+    <div id="sandbox" class="prose max-w-none" style="position: absolute; left: -10000px; width: 1280px; height: 720px; background: white; overflow: hidden;"></div>
+
     <script>
         const generateBtn = document.getElementById('generateBtn');
+        const clearBtn = document.getElementById('clearBtn');
         const htmlInput = document.getElementById('htmlInput');
         const previewArea = document.getElementById('previewArea');
+        const sandbox = document.getElementById('sandbox');
 
-        // Update preview as user types
+        // Initial update
         htmlInput.addEventListener('input', () => {
             previewArea.innerHTML = htmlInput.value;
         });
 
-        generateBtn.addEventListener('click', () => {
+        clearBtn.addEventListener('click', () => {
+            htmlInput.value = '';
+            previewArea.innerHTML = '<p class="text-gray-500 italic">Le rendu apparaîtra ici...</p>';
+        });
+
+        function getHexColor(rgb) {
+            if (!rgb || rgb === 'rgba(0, 0, 0, 0)' || rgb === 'transparent') return null;
+            const parts = rgb.match(/\d+/g);
+            if (parts && parts.length >= 3) {
+                return parts.slice(0, 3).map(x => parseInt(x).toString(16).padStart(2, '0')).join('').toUpperCase();
+            }
+            return null;
+        }
+
+        generateBtn.addEventListener('click', async () => {
             const htmlCode = htmlInput.value.trim();
             if (!htmlCode) {
                 alert('Veuillez coller du code HTML d\'abord.');
                 return;
             }
 
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(htmlCode, 'text/html');
-
-            // Find slides: <section> or <div> with class "slide"
-            let slidesElements = Array.from(doc.querySelectorAll('section, div.slide'));
-
-            // If no slide-specific elements found, try to use the whole body if it contains anything
-            if (slidesElements.length === 0 && doc.body.innerHTML.trim() !== '') {
-                slidesElements = [doc.body];
-            }
-
-            if (slidesElements.length === 0) {
-                alert('Aucune structure de diapositive trouvée. Utilisez <section> ou <div class="slide">.');
-                return;
-            }
-
             const pptx = new PptxGenJS();
             pptx.layout = 'LAYOUT_16x9';
 
-            slidesElements.forEach(slideEl => {
-                const slide = pptx.addSlide();
+            // Use a temporary div to parse slides
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = htmlCode;
 
-                const defaultFont = 'Calibri';
-                let yOffset = 0.5;
+            // If the user pasted multiple slides, they should be in section or .slide tags
+            let slideEls = Array.from(tempDiv.querySelectorAll('section, .slide'));
 
-                function getHexColor(colorStr) {
-                    if (!colorStr) return '000000';
-                    if (colorStr.startsWith('#')) return colorStr.substring(1);
-                    if (colorStr.startsWith('rgb')) {
-                        const parts = colorStr.match(/\d+/g);
-                        if (parts && parts.length >= 3) {
-                            return parts.slice(0, 3).map(x => parseInt(x).toString(16).padStart(2, '0')).join('');
-                        }
+            // If no slide tags found, treat the whole input as one slide
+            if (slideEls.length === 0) {
+                const wrapper = document.createElement('section');
+                wrapper.className = 'slide p-10';
+                wrapper.innerHTML = htmlCode;
+                slideEls = [wrapper];
+            }
+
+            for (const slideEl of slideEls) {
+                const pptSlide = pptx.addSlide();
+
+                // Render slide content in sandbox for measurement
+                // We use outerHTML to keep the slide's own styles (like bg color, padding)
+                sandbox.innerHTML = '';
+                const clone = slideEl.cloneNode(true);
+                clone.style.width = '1280px';
+                clone.style.height = '720px';
+                clone.style.margin = '0';
+                clone.style.boxSizing = 'border-box';
+                sandbox.appendChild(clone);
+
+                // Allow styles to apply
+                await new Promise(r => setTimeout(r, 150));
+
+                const sandboxRect = sandbox.getBoundingClientRect();
+                // Get all elements including the slide container itself
+                const elements = [clone, ...clone.querySelectorAll('*')];
+
+                // Map of processed elements to avoid duplicates
+                const processed = new Set();
+
+                for (const el of elements) {
+                    if (processed.has(el)) continue;
+
+                    const rect = el.getBoundingClientRect();
+                    const style = window.getComputedStyle(el);
+
+                    const x = ((rect.left - sandboxRect.left) / sandboxRect.width) * 100;
+                    const y = ((rect.top - sandboxRect.top) / sandboxRect.height) * 100;
+                    const w = (rect.width / sandboxRect.width) * 100;
+                    const h = (rect.height / sandboxRect.height) * 100;
+
+                    // Skip zero-size elements
+                    if (rect.width === 0 || rect.height === 0) continue;
+
+                    // Handle Backgrounds
+                    const bgColor = getHexColor(style.backgroundColor);
+                    if (bgColor && bgColor !== 'FFFFFF') {
+                        pptSlide.addShape(pptx.ShapeType.rect, {
+                            x: `${x}%`, y: `${y}%`, w: `${w}%`, h: `${h}%`,
+                            fill: { color: bgColor }
+                        });
                     }
-                    return '000000';
-                }
 
-                function processNode(node) {
-                    if (node.nodeType === Node.ELEMENT_NODE) {
-                        const tag = node.tagName.toLowerCase();
-
-                        // Ignore some tags
-                        if (tag === 'script' || tag === 'style') return;
-
-                        let options = {
-                            x: 0.5, y: yOffset, w: '90%', h: 0.3,
-                            fontSize: 14, fontFace: defaultFont,
-                            color: getHexColor(node.style.color),
-                            valign: 'top'
-                        };
-
-                        if (node.style.fontWeight === 'bold' || tag === 'b' || tag === 'strong') options.bold = true;
-                        if (node.style.fontStyle === 'italic' || tag === 'i' || tag === 'em') options.italic = true;
-                        if (node.style.textAlign === 'center') options.align = 'center';
-                        if (node.style.textAlign === 'right') options.align = 'right';
-
-                        if (/^h[1-6]$/.test(tag)) {
-                            const level = parseInt(tag[1]);
-                            options.fontSize = 42 - (level * 5);
-                            options.bold = true;
-                            options.align = options.align || 'center';
-                            options.h = 0.6;
-                            const text = node.innerText.trim();
-                            if (text) {
-                                slide.addText(text, options);
-                                yOffset += (options.fontSize / 72) + 0.3;
-                            }
-                        } else if (tag === 'p' || tag === 'li' || tag === 'span' || tag === 'div') {
-                            // For containers, check if they contain ONLY text or inline elements
-                            const hasBlockChildren = Array.from(node.children).some(child =>
-                                ['p', 'div', 'section', 'article', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li'].includes(child.tagName.toLowerCase())
-                            );
-
-                            const text = node.innerText.trim();
-                            if (text && (!hasBlockChildren || tag === 'p' || tag === 'li')) {
-                                options.bullet = tag === 'li' ? { indent: 20 } : false;
-                                options.x = tag === 'li' ? 0.75 : 0.5;
-                                options.w = tag === 'li' ? '85%' : '90%';
-                                slide.addText(text, options);
-                                yOffset += (options.fontSize / 72) + 0.15;
-                                // If we processed it as a block, don't recurse into children to avoid duplication
-                                return;
-                            }
-                        } else if (tag === 'img') {
-                            const src = node.getAttribute('src');
-                            if (src) {
-                                slide.addImage({ path: src, x: 1, y: yOffset, w: 3, h: 2 });
-                                yOffset += 2.2;
-                            }
-                        }
-
-                        // Recurse into children
-                        Array.from(node.childNodes).forEach(processNode);
-                    } else if (node.nodeType === Node.TEXT_NODE) {
-                        const text = node.textContent.trim();
-                        if (text && node.parentNode === slideEl) { // Only direct text nodes of slide element
-                            slide.addText(text, {
-                                x: 0.5, y: yOffset, w: '90%', h: 0.3,
-                                fontSize: 14, fontFace: defaultFont, color: '000000'
+                    // Handle Images
+                    if (el.tagName === 'IMG') {
+                        const src = el.getAttribute('src');
+                        if (src) {
+                            pptSlide.addImage({
+                                path: src,
+                                x: `${x}%`, y: `${y}%`, w: `${w}%`, h: `${h}%`
                             });
-                            yOffset += 0.4;
+                            processed.add(el);
+                            continue;
                         }
                     }
-                }
 
-                Array.from(slideEl.childNodes).forEach(processNode);
-            });
+                    // Handle Text
+                    // We only want leaf nodes with text or nodes with direct text content
+                    const hasText = Array.from(el.childNodes).some(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim());
+                    if (hasText) {
+                        const fontSizePx = parseFloat(style.fontSize);
+                        const fontSizePt = (fontSizePx * 72) / 96; // Standard conversion
+
+                        pptSlide.addText(el.innerText.trim(), {
+                            x: `${x}%`, y: `${y}%`, w: `${w}%`, h: `${h}%`,
+                            fontSize: Math.round(fontSizePt),
+                            fontFace: style.fontFamily.split(',')[0].replace(/['"]/g, '') || 'Calibri',
+                            color: getHexColor(style.color) || '000000',
+                            bold: style.fontWeight === 'bold' || parseInt(style.fontWeight) >= 600,
+                            italic: style.fontStyle === 'italic',
+                            align: style.textAlign,
+                            valign: 'middle',
+                            bullet: style.display === 'list-item'
+                        });
+
+                        // Mark all children as processed to avoid double text
+                        el.querySelectorAll('*').forEach(child => processed.add(child));
+                    }
+                }
+            }
 
             pptx.writeFile({ fileName: 'presentation_generee.pptx' })
-                .then(fileName => console.log(`Created file: ${fileName}`))
-                .catch(err => {
-                    console.error(err);
-                    alert('Erreur lors de la génération du PPTX.');
-                });
+                .catch(err => alert('Erreur : ' + err));
         });
     </script>
 </body>
