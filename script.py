@@ -80,10 +80,11 @@ async def html_to_pptx(html_content, output_file="presentation.pptx"):
 
             # Query all elements
             elements = await slide_el.query_selector_all('*')
-            processed_elements = set()
 
             for el in elements:
-                if el in processed_elements: continue
+                # Check if element was already processed (marked in DOM)
+                is_processed = await page.evaluate('(el) => el.hasAttribute("data-pptx-processed")', el)
+                if is_processed: continue
 
                 # Get styles
                 style = await page.evaluate('''(el) => {
@@ -222,10 +223,9 @@ async def html_to_pptx(html_content, output_file="presentation.pptx"):
                         elif style['textAlign'] == 'right': p.alignment = PP_ALIGN.RIGHT
                         else: p.alignment = PP_ALIGN.LEFT
 
-                        # Block child text from double-rendering
-                        children = await el.query_selector_all('*')
-                        for child in children:
-                            processed_elements.add(child)
+                        # Block child elements from double-rendering
+                        # We mark them in the DOM since Python ElementHandles are not reliably hashable/comparable
+                        await page.evaluate('(el) => { el.querySelectorAll("*").forEach(c => c.setAttribute("data-pptx-processed", "true")); }', el)
 
                 # 4. Handle non-uniform borders as separate lines
                 if not is_uniform_border:
